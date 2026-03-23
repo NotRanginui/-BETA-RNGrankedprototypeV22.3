@@ -50,6 +50,18 @@ if (!document.getElementById('dynamic-styles')) {
     document.head.appendChild(style);
 }
 
+// --- PERSISTENCE SYSTEM ---
+function saveMatchState() {
+    const state = {
+        playerSets, botSets, currentBotRank, currentBotLuckValue, inProgress: true
+    };
+    localStorage.setItem('crimson_match_state', JSON.stringify(state));
+}
+
+function clearMatchState() {
+    localStorage.removeItem('crimson_match_state');
+}
+
 // --- UI CORE ---
 function showPointPopup(amount, isWin, label = "", offset = "45%") {
     const popup = document.createElement('div');
@@ -61,7 +73,6 @@ function showPointPopup(amount, isWin, label = "", offset = "45%") {
 
 function updateUI() {
     let acc = allAccounts[currentAccIdx];
-    // Ensure the account has an adminBonus field initialized
     if (acc.adminBonus === undefined) acc.adminBonus = 1.0;
 
     let rIdx = Math.min(6, Math.floor(acc.points / 400));
@@ -80,10 +91,9 @@ function updateUI() {
             bonusEl.innerText = `+${((acc.adminBonus - 1) * 100).toFixed(0)}% ADMIN BONUS`;
             bonusEl.style.color = "#fbbf24";
         } else {
-            // Natural Performance Bonus calculation
             let winsInHistory = (acc.history || []).filter(h => h.res === "WIN").length;
-            let winRate = (winsInHistory / totalGames);
-            let naturalBonus = 1.0 + Math.max(0, (winRate - 0.5)); // Up to +50% for high win rates
+            let winRate = (winsInHistory / Math.max(1, totalGames));
+            let naturalBonus = 1.0 + Math.max(0, (winRate - 0.5)); 
             
             if (naturalBonus > 1.0) {
                 bonusEl.innerText = `+${((naturalBonus - 1) * 100).toFixed(0)}% PERFORMANCE BONUS`;
@@ -95,9 +105,6 @@ function updateUI() {
         }
     }
 
-    if (lastRankIdx !== null && rIdx > lastRankIdx) playRankUpCutscene(rankName, rIdx);
-    lastRankIdx = rIdx;
-
     document.getElementById('rank-name').innerText = `${rankName.toUpperCase()} ${division}`;
     document.getElementById('user-display-name').innerText = acc.name;
     document.getElementById('rank-points').innerText = Math.floor(acc.points);
@@ -105,26 +112,12 @@ function updateUI() {
     const sCount = document.getElementById('streak-count');
     sCount.innerText = acc.streak;
     sCount.className = (acc.streak >= 100) ? "streak-flashing" : "";
-    sCount.style.color = (acc.streak >= 50) ? "#a855f7" : (acc.streak >= 20) ? "#ef4444" : (acc.streak >= 5) ? "#3b82f6" : "#fff";
 
     document.getElementById('exp-progress').style.width = (pointsInRank % 100) + "%";
     document.getElementById('current-rank-logo').className = `rank-icon rank-${rankName}`;
     
     localStorage.setItem('crimson_accounts', JSON.stringify(allAccounts));
     localStorage.setItem('crimson_current_acc', currentAccIdx);
-}
-
-function playRankUpCutscene(rankName, rankIdx) {
-    const overlay = document.getElementById('rank-up-overlay');
-    if (!overlay) return;
-    document.getElementById('rank-up-name').innerText = rankName.toUpperCase();
-    document.getElementById('rank-up-icon').className = `rank-icon rank-${rankName}`;
-    overlay.style.display = 'flex';
-    setTimeout(() => overlay.classList.add('active'), 10);
-    setTimeout(() => { 
-        overlay.classList.remove('active'); 
-        setTimeout(() => { overlay.style.display = 'none'; }, 500); 
-    }, 3000);
 }
 
 function queueBot() {
@@ -141,17 +134,19 @@ function resetRound() {
     document.getElementById('bot-roll').innerHTML = `<span class="roll-value">?</span>`;
     document.getElementById('player-retries').innerText = godMode ? "GOD MODE" : `RETRIES: ${playerRetries}`;
     
+    // Bot Luck Nerf: Divide the final range value by 1.3
     const range = BOT_LUCK_CONFIG[currentBotRank];
-    currentBotLuckValue = botLuckOverride !== null ? botLuckOverride : (botRigged ? 1.05 : range[0] + (Math.pow(Math.random(), 0.2) * (range[1] - range[0])));
+    let baseBotLuck = botLuckOverride !== null ? botLuckOverride : (botRigged ? 1.05 : range[0] + (Math.pow(Math.random(), 0.2) * (range[1] - range[0])));
+    currentBotLuckValue = baseBotLuck / 1.3; 
+    
     botLuckOverride = null; 
     botRoll = generateRarity(currentBotLuckValue);
+    saveMatchState();
 }
 
 document.getElementById('roll-btn').onclick = () => {
     if ((playerRetries > 0 || godMode) && !isProcessing) {
         let acc = allAccounts[currentAccIdx];
-        
-        // Streak Luck Bonus: +0.2 Luck for every 5 consecutive wins
         let streakLuckBonus = Math.floor(acc.streak / 5) * 0.2;
         let finalLuck = playerLuck + streakLuckBonus;
 
@@ -166,6 +161,7 @@ document.getElementById('roll-btn').onclick = () => {
             showPointPopup(0, true, "NEW PERSONAL BEST!", "35%");
             setTimeout(() => document.getElementById('player-roll').classList.remove('pb-anim'), 800);
         }
+        saveMatchState();
     }
 };
 
@@ -183,6 +179,7 @@ document.getElementById('stand-btn').onclick = () => {
     setTimeout(() => {
         if (playerRoll > botRoll) playerSets++; else botSets++;
         updateDots();
+        saveMatchState();
         if (playerSets === 3 || botSets === 3) handleMatchEnd();
         else resetRound();
     }, 800);
@@ -200,7 +197,6 @@ function handleMatchEnd() {
     let setMultiplier = (score === "3-0" || score === "0-3") ? 1.3 : (score === "3-2" || score === "2-3" ? 0.8 : 1.0);
     let totalGames = (acc.history || []).length;
     
-    // Dynamic effective bonus logic
     let effectiveBonus = 1.0;
     if (totalGames >= 10) {
         if (acc.adminBonus > 1.0) {
@@ -215,27 +211,22 @@ function handleMatchEnd() {
     let pointChange = 0;
     if (win) {
         pointChange = Math.round(15 * setMultiplier * effectiveBonus);
-        acc.points += pointChange; 
-        acc.streak++;
+        acc.points += pointChange; acc.streak++;
     } else {
-        // Loss Penalty: Balanced at base 12, unaffected by win multipliers
         pointChange = Math.round(12 * setMultiplier);
-        acc.points = Math.max(0, acc.points - pointChange); 
-        acc.streak = 0;
+        acc.points = Math.max(0, acc.points - pointChange); acc.streak = 0;
     }
     
     if(!acc.history) acc.history = [];
     acc.history.unshift({
-        res: win ? "WIN" : "LOSS", 
-        p: playerRoll, b: botRoll, 
-        score: score, diff: pointChange, 
-        time: getTime(),
+        res: win ? "WIN" : "LOSS", p: playerRoll, b: botRoll, score: score, diff: pointChange, time: getTime(),
         pRank: `${pRankName} ${pDiv}`, bRank: currentBotRank
     });
     
     showPointPopup(pointChange, win, "", "50%");
     
     playerSets = 0; botSets = 0;
+    clearMatchState();
     updateUI(); updateDots(); queueBot(); 
     setTimeout(() => { resetRound(); }, 1200);
 }
@@ -313,11 +304,10 @@ window.applyAdminChanges = function() {
     let streakVal = document.getElementById('admin-streak-input').value;
     if(streakVal !== "") acc.streak = parseInt(streakVal);
 
-    updateUI(); 
-    window.toggleModal('admin-modal');
+    updateUI(); window.toggleModal('admin-modal');
 };
 
-window.switchAcc = function(i) { currentAccIdx = i; updateUI(); queueBot(); resetRound(); window.toggleModal('acc-modal'); };
+window.switchAcc = function(i) { currentAccIdx = i; clearMatchState(); updateUI(); queueBot(); resetRound(); window.toggleModal('acc-modal'); };
 window.createNewAccount = function() {
     let n = document.getElementById('new-acc-name').value;
     if(n) { allAccounts.push({name: n, points: 0, streak: 0, history: [], pb: 0, adminBonus: 1.0}); renderAccounts(); document.getElementById('new-acc-name').value = ""; }
@@ -334,4 +324,20 @@ function renderAccounts() {
 }
 
 window.onkeydown = (e) => { if(e.key.toLowerCase() === 'p') { if(prompt("Passcode:") === "admin123") window.toggleModal('admin-modal'); } };
-window.onload = () => { updateUI(); queueBot(); resetRound(); };
+
+window.onload = () => {
+    updateUI();
+    const savedState = JSON.parse(localStorage.getItem('crimson_match_state'));
+    if (savedState && savedState.inProgress) {
+        playerSets = savedState.playerSets;
+        botSets = savedState.botSets;
+        currentBotRank = savedState.currentBotRank;
+        currentBotLuckValue = savedState.currentBotLuckValue;
+        botRoll = generateRarity(currentBotLuckValue);
+        document.getElementById('bot-display-name').innerText = `BOT (${currentBotRank.toUpperCase()})`;
+        updateDots();
+    } else {
+        queueBot();
+        resetRound();
+    }
+};
