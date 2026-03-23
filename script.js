@@ -37,7 +37,7 @@ function generateRarity(luckFactor) {
 }
 function formatRoll(num) { return settings.roundNumbers ? Math.round(num) : num.toFixed(2); }
 
-// CSS Injection for Animations and UI Fixes
+// CSS Injection
 if (!document.getElementById('dynamic-styles')) {
     const style = document.createElement('style');
     style.id = 'dynamic-styles';
@@ -55,7 +55,6 @@ if (!document.getElementById('dynamic-styles')) {
 function showPointPopup(amount, isWin, label = "", offset = "45%") {
     const popup = document.createElement('div');
     popup.innerText = label || ((isWin ? "+" : "-") + Math.abs(Math.round(amount)) + " RP");
-    // Offset added to prevent overlap
     popup.style.cssText = `position:fixed; left:50%; top:${offset}; transform:translateX(-50%); color:${isWin ? '#22c55e' : '#ef4444'}; font-weight:bold; font-size:1.8rem; pointer-events:none; animation:floatUp 2s ease-out forwards; z-index:9999; text-shadow:0 0 15px rgba(0,0,0,0.8);`;
     document.body.appendChild(popup);
     setTimeout(() => popup.remove(), 2000);
@@ -71,9 +70,9 @@ function updateUI() {
     let totalGames = (acc.history || []).length;
     const bonusEl = document.getElementById('bonus-display');
 
-    // NEW LOGIC: Locked at Neutral for 20 matches
-    if (totalGames < 20) {
-        bonusEl.innerText = `NEUTRAL RP (LOCKED ${20 - totalGames} MORE)`;
+    // Locked at Neutral for 10 matches
+    if (totalGames < 10) {
+        bonusEl.innerText = `CALIBRATING BONUS (${10 - totalGames} LEFT)`;
         bonusEl.style.color = "#9ca3af";
     } else {
         let winsInHistory = (acc.history || []).filter(h => h.res === "WIN").length;
@@ -91,9 +90,6 @@ function updateUI() {
             bonusEl.style.color = "#ef4444";
         }
     }
-
-    if (lastRankIdx !== null && rIdx > lastRankIdx) playRankUpCutscene(rankName, rIdx);
-    lastRankIdx = rIdx;
 
     document.getElementById('rank-name').innerText = `${rankName.toUpperCase()} ${division}`;
     document.getElementById('user-display-name').innerText = acc.name;
@@ -155,7 +151,6 @@ document.getElementById('roll-btn').onclick = () => {
         if (playerRoll > (allAccounts[currentAccIdx].pb || 0)) {
             allAccounts[currentAccIdx].pb = playerRoll;
             document.getElementById('player-roll').classList.add('pb-anim');
-            // Offset popup higher so it doesn't cover RP gain later
             showPointPopup(0, true, "NEW PERSONAL BEST!", "35%");
             setTimeout(() => document.getElementById('player-roll').classList.remove('pb-anim'), 800);
         }
@@ -176,11 +171,8 @@ document.getElementById('stand-btn').onclick = () => {
     setTimeout(() => {
         if (playerRoll > botRoll) playerSets++; else botSets++;
         updateDots();
-        if (playerSets === 3 || botSets === 3) {
-            handleMatchEnd();
-        } else {
-            resetRound();
-        }
+        if (playerSets === 3 || botSets === 3) handleMatchEnd();
+        else resetRound();
     }, 800);
 };
 
@@ -194,19 +186,23 @@ function handleMatchEnd() {
     let pRankName = ranks[pRankIdx];
     let pDiv = Math.floor((acc.points % 400) / 100) + 1; 
 
-    // Calculation Logic
-    let luckMultiplier = 1.0; 
     let setMultiplier = (score === "3-0" || score === "0-3") ? 1.3 : (score === "3-2" || score === "2-3" ? 0.7 : 1.0);
     
     let totalGames = (acc.history || []).length;
-    let effectiveBonus = (totalGames < 20) ? 1.0 : adminRPBonus;
+    
+    // Performance based bonus during the first 10 games
+    let winsInHistory = (acc.history || []).filter(h => h.res === "WIN").length;
+    let winRate = (totalGames > 0) ? (winsInHistory / totalGames) : 0.5;
+    let autoBonus = 1.0 + ((winRate - 0.5) * 2); // Scales based on performance
+
+    let effectiveBonus = (totalGames < 10) ? Math.max(0.5, autoBonus) : adminRPBonus;
 
     let pointChange = 0;
     if (win) {
-        pointChange = (15 * luckMultiplier * setMultiplier * effectiveBonus);
+        pointChange = (15 * setMultiplier * effectiveBonus);
         acc.points += pointChange; acc.streak++;
     } else {
-        pointChange = (15 * luckMultiplier * setMultiplier);
+        pointChange = (15 * setMultiplier);
         acc.points = Math.max(0, acc.points - pointChange); acc.streak = 0;
     }
     
@@ -219,17 +215,11 @@ function handleMatchEnd() {
         pRank: `${pRankName} ${pDiv}`, bRank: currentBotRank
     });
     
-    showPointPopup(pointChange, win, "", "50%"); // Lower position for RP gain
+    showPointPopup(pointChange, win, "", "50%");
     
     playerSets = 0; botSets = 0;
-    updateUI(); 
-    updateDots(); 
-    queueBot(); 
-    
-    // Safety delay before resetting to prevent freeze
-    setTimeout(() => {
-        resetRound();
-    }, 1500);
+    updateUI(); updateDots(); queueBot(); 
+    setTimeout(() => { resetRound(); }, 1200);
 }
 
 function updateDots() {
@@ -273,17 +263,25 @@ window.adminAction = function(type) {
 window.applyAdminChanges = function() {
     let acc = allAccounts[currentAccIdx];
     let totalGames = (acc.history || []).length;
-    if (totalGames < 20) {
-        alert(`LOCKED: Play ${20 - totalGames} more matches.`);
-        return;
+    
+    // Only block the Bonus Multiplier, allow other changes
+    let requestedBonus = parseFloat(document.getElementById('admin-rp-bonus-input').value);
+    
+    if (totalGames < 10 && requestedBonus !== 1.0) {
+        alert(`RP BONUS LOCKED: You need ${10 - totalGames} more matches to manually override RP gains.`);
+        adminRPBonus = 1.0; // Reset to default if they tried to change it
+    } else {
+        adminRPBonus = requestedBonus || 1.0;
     }
+
     playerLuck = parseFloat(document.getElementById('admin-luck-input').value) || 2.0;
-    adminRPBonus = parseFloat(document.getElementById('admin-rp-bonus-input').value) || 1.0;
     let rp = document.getElementById('admin-rp-input').value;
     if(rp !== "") acc.points = parseInt(rp);
     let streakVal = document.getElementById('admin-streak-input').value;
     if(streakVal !== "") acc.streak = parseInt(streakVal);
-    updateUI(); window.toggleModal('admin-modal');
+
+    updateUI(); 
+    window.toggleModal('admin-modal');
 };
 
 window.switchAcc = function(i) { currentAccIdx = i; adminRPBonus = 1.0; updateUI(); queueBot(); resetRound(); window.toggleModal('acc-modal'); };
