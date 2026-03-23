@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crimson RNG | Elite Edition</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;900&family=Inter:wght@300;400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div id="rank-up-overlay" style="display:none;">
+        <div id="rank-up-content">
+            <h2 id="rank-up-title">RANK PROMOTION</h2>
+            <div id="rank-up-icon"></div>
+            <h1 id="rank-up-name">RANK NAME</h1>
+        </div>
+    </div>
+
+    <div class="game-container">
+        
+        <div class="nav-bar">
+            <button class="nav-btn" onclick="toggleModal('acc-modal')">PROFILES</button>
+            <button class="nav-btn" onclick="openHistory()">LOGS</button>
+            <button class="nav-btn" onclick="openHighRolls()">BEST</button>
+            <button class="nav-btn" onclick="openLeaderboard()">TOP</button>
+            <button class="nav-btn" onclick="toggleModal('settings-modal')">⚙️</button>
+            <button class="nav-btn wipe-btn" onclick="wipeData()">WIPE</button>
+        </div>
+
+        <div class="profile-header">
+            <div class="rank-info">
+                <div id="current-rank-logo" class="rank-icon"></div>
+                <div>
+                    <h1 id="rank-name">BRONZE 1</h1>
+                    <p id="rp-display">
+                        <span id="user-display-name">Player</span> — 
+                        <span id="rank-points">0</span> RP
+                    </p>
+                    <p id="bonus-display" style="font-size: 0.65rem; font-weight: 800; margin-top: 2px; letter-spacing: 0.5px;"></p>
+                </div>
+                <div class="streak-badge">🔥 <span id="streak-count">0</span></div>
+            </div>
+            
+            <div class="progress-container">
+                <div id="exp-progress" class="progress-bar"></div>
+            </div>
+        </div>
+
+        <div class="arena">
+            <div class="fighter-card">
+                <span class="label">YOU</span>
+                <div id="player-roll" class="roll-box">
+                    <span class="roll-value">?</span>
+                </div>
+                <div id="player-retries" class="sub-label">RETRIES: 5</div>
+            </div>
+            
+            <div class="vs-divider">VS</div>
+            
+            <div class="fighter-card">
+                <span id="bot-display-name" class="label">BOT</span>
+                <div id="bot-roll" class="roll-box">
+                    <span class="roll-value">?</span>
+                </div>
+                <div class="sub-label">BEST OF 3</div>
+            </div>
+        </div>
+
+        <div class="score-display">
+            <div id="player-sets" class="dots"></div>
+            <div id="bot-sets" class="dots"></div>
+        </div>
+
+        <div class="button-row">
+            <button id="roll-btn" class="game-btn roll">ROLL</button>
+            <button id="stand-btn" class="game-btn stand">STAND</button>
+        </div>
+    </div>
+
+    <div id="admin-modal" class="fullscreen-overlay" style="display:none;">
+        <div class="modal-card admin-card-wide">
+            <h2 class="modal-header">ADMIN OVERRIDE</h2>
+            <div class="scroll-list">
+                <div class="input-group">
+                    <label>PLAYER LUCK MULTIPLIER</label>
+                    <input type="number" id="admin-luck-input" step="0.5" value="2.0">
+                </div>
+                <div class="input-group">
+                    <label>SET BOT LUCK (NEXT ROUND ONLY)</label>
+                    <input type="number" id="admin-bot-luck-input" step="0.1" placeholder="Ex: 50.0">
+                </div>
+                <div class="input-group">
+                    <label>SET RP POINTS</label>
+                    <input type="number" id="admin-rp-input" placeholder="Enter RP value...">
+                </div>
+                <div class="input-group">
+                    <label>RP GAIN MULTIPLIER (BASE 1.0)</label>
+                    <input type="number" id="admin-rp-bonus-input" step="0.1" value="1.0">
+                </div>
+                <div class="input-group">
+                    <label>SET WIN STREAK</label>
+                    <input type="number" id="admin-streak-input" placeholder="Current: 0">
+                </div>
+                <div class="admin-grid">
+                    <button onclick="adminAction('instaWin')" class="btn-admin win">INSTA-WIN</button>
+                    <button id="god-mode-btn" onclick="adminAction('godMode')" class="btn-admin">GOD MODE: OFF</button>
+                    <button id="rig-bot-btn" onclick="adminAction('rigBot')" class="btn-admin">RIG BOT: OFF</button>
+                    <button onclick="adminAction('clearHistory')" class="btn-admin danger">CLEAR LOGS</button>
+                </div>
+            </div>
+            <button onclick="applyAdminChanges()" class="btn-primary">APPLY & CLOSE</button>
+            <button onclick="toggleModal('admin-modal')" class="btn-secondary">CANCEL</button>
+        </div>
+    </div>
+
+    <div id="acc-modal" class="fullscreen-overlay" style="display:none;">
+        <div class="modal-card">
+            <h2 class="modal-header">PROFILES</h2>
+            <div id="acc-list" class="scroll-list"></div>
+            <div class="input-group">
+                <input type="text" id="new-acc-name" placeholder="Name..." maxlength="12">
+                <button onclick="createNewAccount()" class="btn-primary">CREATE</button>
+            </div>
+            <button onclick="toggleModal('acc-modal')" class="btn-secondary">CLOSE</button>
+        </div>
+    </div>
+
+    <div id="high-rolls-modal" class="fullscreen-overlay" style="display:none;">
+        <div class="modal-card">
+            <h2 class="modal-header">TOP RECORDS</h2>
+            <div id="high-rolls-list" class="scroll-list"></div>
+            <button onclick="toggleModal('high-rolls-modal')" class="btn-secondary">CLOSE</button>
+        </div>
+    </div>
+
+    <div id="history-modal" class="fullscreen-overlay" style="display:none;">
+        <div class="modal-card history-card-wide">
+            <h2 class="modal-header">MATCH LOGS</h2>
+            <div id="history-list" class="scroll-list"></div>
+            <button onclick="toggleModal('history-modal')" class="btn-secondary">CLOSE</button>
+        </div>
+    </div>
+
+    <div id="leaderboard-modal" class="fullscreen-overlay" style="display:none;">
+        <div class="modal-card">
+            <h2 class="modal-header">LEADERBOARD</h2>
+            <div id="leaderboard-list" class="scroll-list"></div>
+            <button onclick="toggleModal('leaderboard-modal')" class="btn-secondary">CLOSE</button>
+        </div>
+    </div>
+
+    <div id="settings-modal" class="fullscreen-overlay" style="display:none;">
+        <div class="modal-card">
+            <h2 class="modal-header">SETTINGS</h2>
+            <div class="setting-row">
+                <span>Whole Numbers Only</span>
+                <label class="switch">
+                    <input type="checkbox" id="round-toggle" onchange="updateSettings()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <button onclick="toggleModal('settings-modal')" class="btn-secondary">CLOSE</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
