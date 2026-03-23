@@ -11,17 +11,22 @@ const BOT_LUCK_CONFIG = {
 };
 
 // --- DATA INITIALIZATION ---
-let allAccounts = JSON.parse(localStorage.getItem('crimson_accounts')) || [{name: "Player 1", points: 0, streak: 0, history: [], pb: 0, adminBonus: 1.0}];
+let allAccounts = JSON.parse(localStorage.getItem('crimson_accounts')) || [{name: "Player 1", points: 0, streak: 0, history: [], pb: 0}];
 let currentAccIdx = parseInt(localStorage.getItem('crimson_current_acc')) || 0;
 let globalHighRolls = JSON.parse(localStorage.getItem('crimson_high_rolls')) || [];
+
+// Persistent Settings & Admin Values
 let settings = JSON.parse(localStorage.getItem('crimson_settings')) || { roundNumbers: false };
+let adminPersist = JSON.parse(localStorage.getItem('crimson_admin_persist')) || { playerLuck: 2.0, adminRPBonus: 1.0 };
 
 if (!allAccounts[currentAccIdx]) currentAccIdx = 0;
 
 let lastRankIdx = null;
 let godMode = false;
 let botRigged = false;
-let playerLuck = 2.0;
+let playerLuck = adminPersist.playerLuck;
+let adminRPBonus = adminPersist.adminRPBonus;
+
 let botLuckOverride = null; 
 let currentBotLuckValue = 1.0; 
 let playerSets = 0, botSets = 0, playerRetries = 5, playerRoll = 0, botRoll = 0, isProcessing = false;
@@ -52,9 +57,7 @@ if (!document.getElementById('dynamic-styles')) {
 
 // --- PERSISTENCE SYSTEM ---
 function saveMatchState() {
-    const state = {
-        playerSets, botSets, currentBotRank, currentBotLuckValue, inProgress: true
-    };
+    const state = { playerSets, botSets, currentBotRank, currentBotLuckValue, inProgress: true };
     localStorage.setItem('crimson_match_state', JSON.stringify(state));
 }
 
@@ -73,8 +76,6 @@ function showPointPopup(amount, isWin, label = "", offset = "45%") {
 
 function updateUI() {
     let acc = allAccounts[currentAccIdx];
-    if (acc.adminBonus === undefined) acc.adminBonus = 1.0;
-
     let rIdx = Math.min(6, Math.floor(acc.points / 400));
     let rankName = ranks[rIdx];
     let pointsInRank = acc.points % 400;
@@ -87,21 +88,12 @@ function updateUI() {
         bonusEl.innerText = `NEUTRAL LOCK (${10 - totalGames} GAMES LEFT)`;
         bonusEl.style.color = "#9ca3af";
     } else {
-        if (acc.adminBonus > 1.0) {
-            bonusEl.innerText = `+${((acc.adminBonus - 1) * 100).toFixed(0)}% ADMIN BONUS`;
+        if (adminRPBonus > 1.0) {
+            bonusEl.innerText = `+${((adminRPBonus - 1) * 100).toFixed(0)}% ADMIN BONUS`;
             bonusEl.style.color = "#fbbf24";
         } else {
-            let winsInHistory = (acc.history || []).filter(h => h.res === "WIN").length;
-            let winRate = (winsInHistory / Math.max(1, totalGames));
-            let naturalBonus = 1.0 + Math.max(0, (winRate - 0.5)); 
-            
-            if (naturalBonus > 1.0) {
-                bonusEl.innerText = `+${((naturalBonus - 1) * 100).toFixed(0)}% PERFORMANCE BONUS`;
-                bonusEl.style.color = "#22c55e";
-            } else {
-                bonusEl.innerText = `NORMAL RP RATE`;
-                bonusEl.style.color = "#22c55e";
-            }
+            bonusEl.innerText = `NORMAL RP RATE`;
+            bonusEl.style.color = "#22c55e";
         }
     }
 
@@ -118,6 +110,8 @@ function updateUI() {
     
     localStorage.setItem('crimson_accounts', JSON.stringify(allAccounts));
     localStorage.setItem('crimson_current_acc', currentAccIdx);
+    localStorage.setItem('crimson_settings', JSON.stringify(settings));
+    localStorage.setItem('crimson_admin_persist', JSON.stringify({ playerLuck, adminRPBonus }));
 }
 
 function queueBot() {
@@ -134,10 +128,9 @@ function resetRound() {
     document.getElementById('bot-roll').innerHTML = `<span class="roll-value">?</span>`;
     document.getElementById('player-retries').innerText = godMode ? "GOD MODE" : `RETRIES: ${playerRetries}`;
     
-    // Bot Luck Nerf: Divide the final range value by 1.3
     const range = BOT_LUCK_CONFIG[currentBotRank];
     let baseBotLuck = botLuckOverride !== null ? botLuckOverride : (botRigged ? 1.05 : range[0] + (Math.pow(Math.random(), 0.2) * (range[1] - range[0])));
-    currentBotLuckValue = baseBotLuck / 1.3; 
+    currentBotLuckValue = baseBotLuck / 1.3; // 1.3x Luck Nerf
     
     botLuckOverride = null; 
     botRoll = generateRarity(currentBotLuckValue);
@@ -196,17 +189,7 @@ function handleMatchEnd() {
 
     let setMultiplier = (score === "3-0" || score === "0-3") ? 1.3 : (score === "3-2" || score === "2-3" ? 0.8 : 1.0);
     let totalGames = (acc.history || []).length;
-    
-    let effectiveBonus = 1.0;
-    if (totalGames >= 10) {
-        if (acc.adminBonus > 1.0) {
-            effectiveBonus = acc.adminBonus;
-        } else {
-            let winsInHistory = (acc.history || []).filter(h => h.res === "WIN").length;
-            let winRate = (winsInHistory / Math.max(1, totalGames));
-            effectiveBonus = 1.0 + Math.max(0, (winRate - 0.5));
-        }
-    }
+    let effectiveBonus = (totalGames < 10) ? 1.0 : adminRPBonus;
 
     let pointChange = 0;
     if (win) {
@@ -224,7 +207,6 @@ function handleMatchEnd() {
     });
     
     showPointPopup(pointChange, win, "", "50%");
-    
     playerSets = 0; botSets = 0;
     clearMatchState();
     updateUI(); updateDots(); queueBot(); 
@@ -251,31 +233,21 @@ window.toggleModal = function(id) {
 window.openHistory = function() {
     window.toggleModal('history-modal');
     document.getElementById('history-list').innerHTML = (allAccounts[currentAccIdx].history || []).map(h => `
-        <div class="history-item">
-            <div style="display:flex; justify-content:space-between;">
-                <b style="color:${h.res==='WIN'?'#22c55e':'#ef4444'}">${h.res} (${h.score})</b>
-                <span style="color:${h.res==='WIN'?'#22c55e':'#ef4444'}">${h.res==='WIN'?'+':'-'}${Math.round(h.diff)} RP</span>
-            </div>
-            <div style="font-size:0.6rem; opacity:0.8; margin-top:4px;">
-                YOU: ${h.pRank} (${formatRoll(h.p)}) | BOT: ${h.bRank} (${formatRoll(h.b)})
-            </div>
-        </div>`).join('');
+        <div class="history-item"><div style="display:flex; justify-content:space-between;">
+        <b style="color:${h.res==='WIN'?'#22c55e':'#ef4444'}">${h.res} (${h.score})</b>
+        <span style="color:${h.res==='WIN'?'#22c55e':'#ef4444'}">${h.res==='WIN'?'+':'-'}${Math.round(h.diff)} RP</span>
+        </div><div style="font-size:0.6rem; opacity:0.8; margin-top:4px;">YOU: ${h.pRank} (${formatRoll(h.p)}) | BOT: ${h.bRank} (${formatRoll(h.b)})</div></div>`).join('');
 };
 
 window.openHighRolls = function() {
     window.toggleModal('high-rolls-modal');
     document.getElementById('high-rolls-list').innerHTML = globalHighRolls.length > 0 ? 
-        globalHighRolls.map((h, i) => `<div class="history-item"><span>#${i+1} ${h.name}</span> <b style="color:#ef4444">1 in ${formatRoll(h.roll)}</b></div>`).join('') :
-        `<p style="text-align:center; opacity:0.5;">No records yet.</p>`;
+        globalHighRolls.map((h, i) => `<div class="history-item"><span>#${i+1} ${h.name}</span> <b style="color:#ef4444">1 in ${formatRoll(h.roll)}</b></div>`).join('') : `<p style="text-align:center; opacity:0.5;">No records yet.</p>`;
 };
 
 window.openLeaderboard = function() {
     window.toggleModal('leaderboard-modal');
-    document.getElementById('leaderboard-list').innerHTML = [...allAccounts].sort((a,b)=>b.points-a.points).map((acc, i) => `
-        <div class="history-item" style="display:flex; justify-content:space-between;">
-            <span>#${i+1} ${acc.name}</span>
-            <b>${Math.floor(acc.points)} RP</b>
-        </div>`).join('');
+    document.getElementById('leaderboard-list').innerHTML = [...allAccounts].sort((a,b)=>b.points-a.points).map((acc, i) => `<div class="history-item" style="display:flex; justify-content:space-between;"><span>#${i+1} ${acc.name}</span><b>${Math.floor(acc.points)} RP</b></div>`).join('');
 };
 
 window.adminAction = function(type) {
@@ -288,14 +260,13 @@ window.adminAction = function(type) {
 window.applyAdminChanges = function() {
     let acc = allAccounts[currentAccIdx];
     let totalGames = (acc.history || []).length;
-    let requestedBonus = parseFloat(document.getElementById('admin-rp-bonus-input').value);
+    let reqBonus = parseFloat(document.getElementById('admin-rp-bonus-input').value);
     
-    if (totalGames < 10 && requestedBonus !== 1.0) {
+    if (totalGames < 10 && reqBonus !== 1.0) {
         alert(`RP BONUS LOCKED: Need ${10 - totalGames} more matches.`);
-        acc.adminBonus = 1.0;
-        document.getElementById('admin-rp-bonus-input').value = 1.0;
+        adminRPBonus = 1.0;
     } else {
-        acc.adminBonus = requestedBonus || 1.0;
+        adminRPBonus = reqBonus || 1.0;
     }
 
     playerLuck = parseFloat(document.getElementById('admin-luck-input').value) || 2.0;
@@ -307,10 +278,21 @@ window.applyAdminChanges = function() {
     updateUI(); window.toggleModal('admin-modal');
 };
 
+// --- RESET ADMIN FUNCTION ---
+window.resetAdminDefaults = function() {
+    if(confirm("Reset all Admin & Luck settings to default?")) {
+        playerLuck = 2.0;
+        adminRPBonus = 1.0;
+        document.getElementById('admin-luck-input').value = 2.0;
+        document.getElementById('admin-rp-bonus-input').value = 1.0;
+        updateUI();
+    }
+};
+
 window.switchAcc = function(i) { currentAccIdx = i; clearMatchState(); updateUI(); queueBot(); resetRound(); window.toggleModal('acc-modal'); };
 window.createNewAccount = function() {
     let n = document.getElementById('new-acc-name').value;
-    if(n) { allAccounts.push({name: n, points: 0, streak: 0, history: [], pb: 0, adminBonus: 1.0}); renderAccounts(); document.getElementById('new-acc-name').value = ""; }
+    if(n) { allAccounts.push({name: n, points: 0, streak: 0, history: [], pb: 0}); renderAccounts(); document.getElementById('new-acc-name').value = ""; }
 };
 window.deleteAcc = function(e, i) {
     e.stopPropagation();
@@ -327,6 +309,11 @@ window.onkeydown = (e) => { if(e.key.toLowerCase() === 'p') { if(prompt("Passcod
 
 window.onload = () => {
     updateUI();
+    // Load Admin Panel values into inputs so they show current state
+    document.getElementById('admin-luck-input').value = playerLuck;
+    document.getElementById('admin-rp-bonus-input').value = adminRPBonus;
+    document.getElementById('round-toggle').checked = settings.roundNumbers;
+
     const savedState = JSON.parse(localStorage.getItem('crimson_match_state'));
     if (savedState && savedState.inProgress) {
         playerSets = savedState.playerSets;
